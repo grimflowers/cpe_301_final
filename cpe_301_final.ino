@@ -13,10 +13,10 @@ int stepPin4 = 13;
 const int stepsPerRevolution = 2038;
 Stepper myStepper = Stepper(stepsPerRevolution, stepPin1, stepPin3, stepPin2, stepPin4);
 
-const int RS = 2, EN = 3, D4 = 4, D5 = 5, D6 = 6, D7 = 7;
+const int RS = 8, EN = 9, D4 = 4, D5 = 5, D6 = 6, D7 = 7;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 
-#define DHT11_PIN 9
+#define DHT11_PIN 24
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
 
@@ -54,13 +54,13 @@ void loop() {
   // Serial.println(dht.readHumidity());
   // delay(1000);
 
-  DateTime now = rtc.now();
-  Serial.println(now.year(), DEC);
-  Serial.println(now.month(), DEC);
-  Serial.println(daysOfTheWeek[now.dayOfTheWeek()]);
-  Serial.println(now.hour(), DEC);
-  Serial.println(now.minute(), DEC);
-  Serial.println(now.second(), DEC);
-  Serial.println();
-  delay(3000);
+  // DateTime now = rtc.now();
+  // Serial.println(now.year(), DEC);
+  // Serial.println(now.month(), DEC);
+  // Serial.println(daysOfTheWeek[now.dayOfTheWeek()]);
+  // Serial.println(now.hour(), DEC);
+  // Serial.println(now.minute(), DEC);
+  // Serial.println(now.second(), DEC);
+  // Serial.println();
+  // delay(3000);
 }
