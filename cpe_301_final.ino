@@ -26,8 +26,6 @@ DHT dht(DHT11_PIN, DHTTYPE);
 
 // Clock Cicuit
 RTC_DS1307 rtc;
-char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
-"Friday", "Saturday"};
 
 // Global States
 enum State {
@@ -36,7 +34,12 @@ enum State {
   RUNNING,
   ERROR
 };
-volatile enum State currentState = DISABLED;
+
+char stateNames[4][10] = {"Disabled", "Idle", "Running", "Error"};
+
+volatile enum State previousState;
+volatile enum State currentState;
+volatile bool stateChangeFlag;
 
 const byte startButtonPin = 3; 
 
@@ -55,6 +58,10 @@ void setup() {
 
   pinMode(startButtonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(startButtonPin), toggleDisable, FALLING);
+
+  previousState = DISABLED;
+  currentState = DISABLED;
+  stateChangeFlag = false;
 }
 
 void loop() {
@@ -70,21 +77,37 @@ void loop() {
   // Serial.println(dht.readTemperature(true));
   // Serial.print("Humidity=");
   // Serial.println(dht.readHumidity());
-  // delay(1000);
+  // delay(1000)
 
-  // DateTime now = rtc.now();
-  // Serial.println(now.year(), DEC);
-  // Serial.println(now.month(), DEC);
-  // Serial.println(daysOfTheWeek[now.dayOfTheWeek()]);
-  // Serial.println(now.hour(), DEC);
-  // Serial.println(now.minute(), DEC);
-  // Serial.println(now.second(), DEC);
-  // Serial.println();
-  // delay(3000);
-  Serial.println(currentState);
-  delay(100);
+  if (stateChangeFlag) {
+    DateTime timeStamp = rtc.now();
+
+    Serial.print("Changed from ");
+    Serial.print(stateNames[previousState]);
+    Serial.print(" to ");
+    Serial.print(stateNames[currentState]);
+    Serial.print(" at ");
+    Serial.print(timeStamp.hour(), DEC);
+    Serial.print(":");
+    Serial.print(timeStamp.minute(), DEC);
+    Serial.print(":");
+    Serial.println(timeStamp.second(), DEC);
+
+    stateChangeFlag = false;
+  }
+
+  switch (currentState) {
+    case IDLE:
+      break;
+    case RUNNING:
+      break;
+    case ERROR:
+      break;
+  }
 }
 
 void toggleDisable() {
+  previousState = currentState;
   currentState = (currentState == DISABLED) ? IDLE : DISABLED;
+  stateChangeFlag = true;
 }
