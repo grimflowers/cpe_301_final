@@ -4,17 +4,21 @@
 #include "RTClib.h"
 
 // Water Level Sensor
-int sensorPin = A0;
-int sensorValue = 0;
-const float waterLevelThreshold = 250;
+const byte sensorPin = A0;
+const int waterLevelThreshold = 250;
 
 // Stepper Motor
-int stepPin1 = 10;
-int stepPin2 = 11;
-int stepPin3 = 12;
-int stepPin4 = 13;
+const byte stepPin1 = 10;
+const byte stepPin2 = 11;
+const byte stepPin3 = 12;
+const byte stepPin4 = 13;
 const int stepsPerRevolution = 2038;
 Stepper myStepper = Stepper(stepsPerRevolution, stepPin1, stepPin3, stepPin2, stepPin4);
+
+// DC Motor
+const byte dcForwardPin = 38;
+const byte dcBackwardPin = 40;
+volatile int dcFanState = LOW;
 
 // LCD
 const int RS = 8, EN = 9, D4 = 4, D5 = 5, D6 = 6, D7 = 7;
@@ -24,7 +28,7 @@ LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 #define DHT11_PIN 24
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
-const long temperatureThreshold = 66;
+const float temperatureThreshold = 67.0;
 
 // Clock Cicuit
 RTC_DS1307 rtc;
@@ -73,6 +77,11 @@ void setup() {
   pinMode(startButtonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(startButtonPin), toggleDisable, FALLING);
 
+  pinMode(dcForwardPin, OUTPUT);
+  pinMode(dcBackwardPin, OUTPUT);
+  digitalWrite(dcForwardPin, LOW);
+  digitalWrite(dcBackwardPin, LOW);
+
   pinMode(disabledStatusLED, OUTPUT);
   pinMode(idleStatusLED, OUTPUT);
   pinMode(runningStatusLED, OUTPUT);
@@ -100,11 +109,12 @@ void loop() {
     requestedState = NIL;
     logStateChange();
     stateTransitionRequest = false;
+    cleanUp();
   }
 
-  if (previousState != currentState) {
-    clearLEDs();
-  }
+  // if (previousState != currentState) {
+  //   clearLEDs();
+  // }
 
   switch (currentState) {
     case DISABLED:
@@ -142,14 +152,36 @@ void handleDisable() {
 void handleIdle() {
   digitalWrite(idleStatusLED, HIGH);
 
-  if (analogRead(sensorPin) <= waterLevelThreshold) {
+  int waterLevel = analogRead(sensorPin);
+  float curTemperature = dht.readTemperature(true);
+  Serial.println(curTemperature);
+
+  if (waterLevel <= waterLevelThreshold) {
     requestedState = ERROR;
+    stateTransitionRequest = true;
+  } else if (curTemperature > temperatureThreshold) {
+    requestedState = RUNNING;
     stateTransitionRequest = true;
   }
 }
 
 void handleRunning() {
   digitalWrite(runningStatusLED, HIGH);
+
+  int waterLevel = analogRead(sensorPin);
+  float curTemperature = dht.readTemperature(true);
+
+  if (waterLevel <= waterLevelThreshold) {
+    requestedState = ERROR;
+    stateTransitionRequest = true;
+  } else if (curTemperature <= temperatureThreshold) {
+    requestedState = IDLE;
+    stateTransitionRequest = true;
+  } else {
+    if (dcFanState == LOW) {
+      toggleFan();
+    }
+  }
 }
 
 void handleError() {
@@ -176,4 +208,30 @@ void logStateChange() {
     Serial.print(timeStamp.minute(), DEC);
     Serial.print(":");
     Serial.println(timeStamp.second(), DEC);
+}
+
+void toggleFan() {
+  dcFanState = (dcFanState == LOW) ? HIGH : LOW;
+  digitalWrite(dcForwardPin, dcFanState);
+}
+
+void cleanUp() {
+  switch (previousState) {
+    case DISABLED:
+      digitalWrite(disabledStatusLED, LOW);
+      break;
+    case IDLE:
+      digitalWrite(idleStatusLED, LOW);
+      break;
+    case RUNNING:
+      digitalWrite(runningStatusLED, LOW);
+      if (dcFanState == HIGH) {
+        toggleFan();
+      }
+
+      break;
+    case ERROR:
+      digitalWrite(errorStatusLED, LOW);
+      break;
+  }
 }
