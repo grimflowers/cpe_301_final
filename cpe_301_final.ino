@@ -32,16 +32,26 @@ enum State {
   DISABLED,
   IDLE,
   RUNNING,
-  ERROR
+  ERROR,
+  NIL
 };
 
-char stateNames[4][10] = {"Disabled", "Idle", "Running", "Error"};
+// State Management
+char stateNames[5][10] = {"Disabled", "Idle", "Running", "Error", "Nil"};
+volatile enum State previousState = NIL;
+volatile enum State currentState = DISABLED;
 
-volatile enum State previousState;
-volatile enum State currentState;
-volatile bool stateChangeFlag;
+// Start Button
+const byte startButtonPin = 3;
+const unsigned long debounceThreshold = 250;
+volatile bool startButtonFlag = false;
+volatile unsigned long prevStartInterruptTime = 0;
 
-const byte startButtonPin = 3; 
+// LEDs
+const byte disabledStatusLED = 46;
+const byte idleStatusLED = 48;
+const byte runningStatusLED = 50;
+const byte errorStatusLED = 52;
 
 void setup() {
   Serial.begin(9600);
@@ -59,9 +69,10 @@ void setup() {
   pinMode(startButtonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(startButtonPin), toggleDisable, FALLING);
 
-  previousState = DISABLED;
-  currentState = DISABLED;
-  stateChangeFlag = false;
+  pinMode(disabledStatusLED, OUTPUT);
+  pinMode(idleStatusLED, OUTPUT);
+  pinMode(runningStatusLED, OUTPUT);
+  pinMode(errorStatusLED, OUTPUT);
 }
 
 void loop() {
@@ -76,10 +87,73 @@ void loop() {
   // Serial.println("Temperature=");
   // Serial.println(dht.readTemperature(true));
   // Serial.print("Humidity=");
+  
   // Serial.println(dht.readHumidity());
   // delay(1000)
 
-  if (stateChangeFlag) {
+  if (startButtonFlag) {
+    previousState = currentState;
+    currentState = ((currentState == DISABLED) ? IDLE : DISABLED);
+    logStateChange();
+    startButtonFlag = false;
+  }
+
+  if (previousState != currentState) {
+    clearLEDs();
+  }
+
+  switch (currentState) {
+    case DISABLED:
+      handleDisable();
+      break;
+    case IDLE:
+      handleIdle();
+      break;
+    case RUNNING:
+      handleRunning();
+      break;
+    case ERROR:
+      handleError();
+      break;
+  }
+
+  previousState = currentState;
+}
+
+void toggleDisable() {
+  unsigned long curStartInterruptTime = millis(); // used only to debounce start button
+
+  if (curStartInterruptTime - prevStartInterruptTime > debounceThreshold) {
+    startButtonFlag = true;
+  }
+
+  prevStartInterruptTime = curStartInterruptTime;
+}
+
+void handleDisable() {
+  digitalWrite(disabledStatusLED, HIGH);
+}
+
+void handleIdle() {
+  digitalWrite(idleStatusLED, HIGH);
+}
+
+void handleRunning() {
+  digitalWrite(runningStatusLED, HIGH);
+}
+
+void handleError() {
+  digitalWrite(errorStatusLED, HIGH);
+}
+
+void clearLEDs() {
+  digitalWrite(disabledStatusLED, LOW);
+  digitalWrite(idleStatusLED, LOW);
+  digitalWrite(runningStatusLED, LOW);
+  digitalWrite(errorStatusLED, LOW);
+}
+
+void logStateChange() {
     DateTime timeStamp = rtc.now();
 
     Serial.print("Changed from ");
@@ -92,22 +166,4 @@ void loop() {
     Serial.print(timeStamp.minute(), DEC);
     Serial.print(":");
     Serial.println(timeStamp.second(), DEC);
-
-    stateChangeFlag = false;
-  }
-
-  switch (currentState) {
-    case IDLE:
-      break;
-    case RUNNING:
-      break;
-    case ERROR:
-      break;
-  }
-}
-
-void toggleDisable() {
-  previousState = currentState;
-  currentState = (currentState == DISABLED) ? IDLE : DISABLED;
-  stateChangeFlag = true;
 }
