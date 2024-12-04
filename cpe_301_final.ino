@@ -6,6 +6,7 @@
 // Water Level Sensor
 int sensorPin = A0;
 int sensorValue = 0;
+const float waterLevelThreshold = 250;
 
 // Stepper Motor
 int stepPin1 = 10;
@@ -23,6 +24,7 @@ LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 #define DHT11_PIN 24
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
+const long temperatureThreshold = 66;
 
 // Clock Cicuit
 RTC_DS1307 rtc;
@@ -40,6 +42,8 @@ enum State {
 char stateNames[5][10] = {"Disabled", "Idle", "Running", "Error", "Nil"};
 volatile enum State previousState = NIL;
 volatile enum State currentState = DISABLED;
+volatile enum State requestedState = NIL;
+volatile bool stateTransitionRequest = false;
 
 // Start Button
 const byte startButtonPin = 3;
@@ -76,8 +80,8 @@ void setup() {
 }
 
 void loop() {
-  // sensorValue = analogRead(sensorPin);
-  // Serial.println(sensorValue);
+  // waterLevel = analogRead(sensorPin);
+  // Serial.println(waterLevel);
   // delay(250);
 
   // myStepper.setSpeed(10);
@@ -91,11 +95,11 @@ void loop() {
   // Serial.println(dht.readHumidity());
   // delay(1000)
 
-  if (startButtonFlag) {
-    previousState = currentState;
-    currentState = ((currentState == DISABLED) ? IDLE : DISABLED);
+  if (stateTransitionRequest) {
+    currentState = requestedState;
+    requestedState = NIL;
     logStateChange();
-    startButtonFlag = false;
+    stateTransitionRequest = false;
   }
 
   if (previousState != currentState) {
@@ -124,7 +128,8 @@ void toggleDisable() {
   unsigned long curStartInterruptTime = millis(); // used only to debounce start button
 
   if (curStartInterruptTime - prevStartInterruptTime > debounceThreshold) {
-    startButtonFlag = true;
+    requestedState = ((currentState == DISABLED) ? IDLE : DISABLED);
+    stateTransitionRequest = true;
   }
 
   prevStartInterruptTime = curStartInterruptTime;
@@ -136,6 +141,11 @@ void handleDisable() {
 
 void handleIdle() {
   digitalWrite(idleStatusLED, HIGH);
+
+  if (analogRead(sensorPin) <= waterLevelThreshold) {
+    requestedState = ERROR;
+    stateTransitionRequest = true;
+  }
 }
 
 void handleRunning() {
