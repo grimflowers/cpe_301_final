@@ -1,3 +1,8 @@
+// Scott Smythe
+// CPE 301
+// Fall 2024
+// Final Project
+
 #include "Stepper.h"
 #include "LiquidCrystal.h"
 #include "DHT.h"
