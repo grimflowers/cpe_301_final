@@ -12,23 +12,27 @@ const byte stepPin1 = 10;
 const byte stepPin2 = 11;
 const byte stepPin3 = 12;
 const byte stepPin4 = 13;
-const int stepsPerRevolution = 2038;
+const int stepsPerRevolution = 500;
+const int stepperSpeed = 10;
 Stepper myStepper = Stepper(stepsPerRevolution, stepPin1, stepPin3, stepPin2, stepPin4);
 
 // DC Motor
 const byte dcForwardPin = 38;
 const byte dcBackwardPin = 40;
-volatile int dcFanState = LOW;
+int dcFanState = LOW;
 
 // LCD
 const int RS = 8, EN = 9, D4 = 4, D5 = 5, D6 = 6, D7 = 7;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
+const unsigned long screenUpdateTimeThreshold = 5000;
+unsigned long lastScreenUpdateTime = 0;
+bool lcdEmpty = true;
 
 // Humidity and Temp sensor
 #define DHT11_PIN 24
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
-const float temperatureThreshold = 67.0;
+const float temperatureThreshold = 75.0;
 
 // Clock Cicuit
 RTC_DS1307 rtc;
@@ -44,16 +48,29 @@ enum State {
 
 // State Management
 char stateNames[5][10] = {"Disabled", "Idle", "Running", "Error", "Nil"};
-volatile enum State previousState = NIL;
-volatile enum State currentState = DISABLED;
+enum State previousState = NIL;
+enum State currentState = DISABLED;
 volatile enum State requestedState = NIL;
 volatile bool stateTransitionRequest = false;
 
+// All Buttons
+const unsigned long debounceThreshold = 250;
+
 // Start Button
 const byte startButtonPin = 3;
-const unsigned long debounceThreshold = 250;
-volatile bool startButtonFlag = false;
 volatile unsigned long prevStartInterruptTime = 0;
+
+// Reset Button
+const byte resetButtonPin = 2;
+volatile unsigned long prevResetInterruptTime = 0;
+
+// Vent Control Buttons
+const byte ventRotateRightPin = 19;
+const byte ventRotateLeftPin = 18;
+volatile unsigned long ventControlRightInterruptTime = 0;
+volatile unsigned long ventControlLeftInterruptTime = 0;
+volatile bool moveVentRightFlag = false;
+volatile bool moveVentLeftFlag = false;
 
 // LEDs
 const byte disabledStatusLED = 46;
@@ -63,19 +80,25 @@ const byte errorStatusLED = 52;
 
 void setup() {
   Serial.begin(9600);
-  lcd.begin(16, 2);
 
-  lcd.setCursor(0,0);
-  lcd.print("Hello");
-  lcd.setCursor(2,1);
-  lcd.print("World");
+  myStepper.setSpeed(stepperSpeed);
 
   dht.begin();
 
   rtc.begin();
 
+  lcd.begin(16, 2);
+
   pinMode(startButtonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(startButtonPin), toggleDisable, FALLING);
+
+  pinMode(resetButtonPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(resetButtonPin), toggleReset, FALLING);
+
+  pinMode(ventRotateRightPin, INPUT_PULLUP);
+  pinMode(ventRotateLeftPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ventRotateRightPin), rotateVentRightHandler, FALLING);
+  attachInterrupt(digitalPinToInterrupt(ventRotateLeftPin), rotateVentLeftHandler, FALLING);
 
   pinMode(dcForwardPin, OUTPUT);
   pinMode(dcBackwardPin, OUTPUT);
@@ -93,28 +116,27 @@ void loop() {
   // Serial.println(waterLevel);
   // delay(250);
 
-  // myStepper.setSpeed(10);
-  // myStepper.step(stepsPerRevolution);
-  // delay(500);
-
-  // Serial.println("Temperature=");
-  // Serial.println(dht.readTemperature(true));
-  // Serial.print("Humidity=");
-  
-  // Serial.println(dht.readHumidity());
-  // delay(1000)
-
   if (stateTransitionRequest) {
     currentState = requestedState;
     requestedState = NIL;
-    logStateChange();
     stateTransitionRequest = false;
+    logStateChange();
     cleanUp();
   }
 
-  // if (previousState != currentState) {
-  //   clearLEDs();
-  // }
+  bool notInErrorState = (currentState != ERROR);
+
+  if (notInErrorState) {
+    if (moveVentRightFlag) {
+      moveVentRightFlag = false;
+      moveVent(1);
+    } 
+    
+    if (moveVentLeftFlag) {
+      moveVentLeftFlag = false;
+      moveVent(-1);
+    }
+  }
 
   switch (currentState) {
     case DISABLED:
@@ -135,7 +157,7 @@ void loop() {
 }
 
 void toggleDisable() {
-  unsigned long curStartInterruptTime = millis(); // used only to debounce start button
+  unsigned long curStartInterruptTime = millis();
 
   if (curStartInterruptTime - prevStartInterruptTime > debounceThreshold) {
     requestedState = ((currentState == DISABLED) ? IDLE : DISABLED);
@@ -145,8 +167,50 @@ void toggleDisable() {
   prevStartInterruptTime = curStartInterruptTime;
 }
 
+void toggleReset() {
+  unsigned long curResetInterruptTime = millis();
+  bool inErrorState = (currentState == ERROR);
+  bool notABounce = (curResetInterruptTime - prevResetInterruptTime > debounceThreshold);
+
+  if (inErrorState && notABounce) {
+    requestedState = IDLE;
+    stateTransitionRequest = true;
+  }
+
+  prevResetInterruptTime = curResetInterruptTime;
+}
+
 void handleDisable() {
   digitalWrite(disabledStatusLED, HIGH);
+
+  if (!lcdEmpty) {
+    lcd.noDisplay();
+    lcdEmpty = true;
+  }
+}
+
+void rotateVentRightHandler() {
+  unsigned long curInterruptTime = millis();
+  bool notInErrorState = (currentState != ERROR);
+  bool notABounce = (curInterruptTime - ventControlRightInterruptTime > debounceThreshold);
+
+  if (notInErrorState && notABounce) {
+    moveVentRightFlag = true;
+  }
+
+  ventControlRightInterruptTime = curInterruptTime;
+}
+
+void rotateVentLeftHandler() {
+  unsigned long curInterruptTime = millis();
+  bool notInErrorState = (currentState != ERROR);
+  bool notABounce = (curInterruptTime - ventControlLeftInterruptTime > debounceThreshold);
+
+  if (notInErrorState && notABounce) {
+    moveVentLeftFlag = true;
+  }
+
+  ventControlLeftInterruptTime = curInterruptTime;
 }
 
 void handleIdle() {
@@ -154,7 +218,11 @@ void handleIdle() {
 
   int waterLevel = analogRead(sensorPin);
   float curTemperature = dht.readTemperature(true);
-  Serial.println(curTemperature);
+
+  if (lcdEmpty) {
+    updateDisplayStats();
+    lcdEmpty = false;
+  }
 
   if (waterLevel <= waterLevelThreshold) {
     requestedState = ERROR;
@@ -162,6 +230,13 @@ void handleIdle() {
   } else if (curTemperature > temperatureThreshold) {
     requestedState = RUNNING;
     stateTransitionRequest = true;
+  } else {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - lastScreenUpdateTime > screenUpdateTimeThreshold) {
+      updateDisplayStats();
+      lastScreenUpdateTime = currentMillis;
+    }
   }
 }
 
@@ -181,18 +256,18 @@ void handleRunning() {
     if (dcFanState == LOW) {
       toggleFan();
     }
+
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - lastScreenUpdateTime > screenUpdateTimeThreshold) {
+      updateDisplayStats();
+      lastScreenUpdateTime = currentMillis;
+    }
   }
 }
 
 void handleError() {
   digitalWrite(errorStatusLED, HIGH);
-}
-
-void clearLEDs() {
-  digitalWrite(disabledStatusLED, LOW);
-  digitalWrite(idleStatusLED, LOW);
-  digitalWrite(runningStatusLED, LOW);
-  digitalWrite(errorStatusLED, LOW);
 }
 
 void logStateChange() {
@@ -219,6 +294,8 @@ void cleanUp() {
   switch (previousState) {
     case DISABLED:
       digitalWrite(disabledStatusLED, LOW);
+      lcd.display();
+      lcdEmpty = true;
       break;
     case IDLE:
       digitalWrite(idleStatusLED, LOW);
@@ -234,4 +311,25 @@ void cleanUp() {
       digitalWrite(errorStatusLED, LOW);
       break;
   }
+}
+
+void updateDisplayStats() {
+  float curTemperature = dht.readTemperature(true);
+  float curHumidity = dht.readHumidity();
+
+  lcd.clear();
+  lcd.home();
+  lcd.print(curTemperature);
+  lcd.setCursor(0, 2);
+  lcd.print(curHumidity);
+}
+
+void moveVent(int direction) {
+  if (direction >= 0) {
+    Serial.println("Moving Vent Right");
+  } else {
+    Serial.println("Moving Vent Left");
+  }
+
+  myStepper.step(direction * stepsPerRevolution);
 }
