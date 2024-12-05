@@ -27,6 +27,8 @@ LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 const unsigned long screenUpdateTimeThreshold = 5000;
 unsigned long lastScreenUpdateTime = 0;
 bool lcdEmpty = true;
+const char errorMessage1[] = "Water level is";
+const char errorMessage2[] = "too low.";
 
 // Humidity and Temp sensor
 #define DHT11_PIN 24
@@ -112,11 +114,8 @@ void setup() {
 }
 
 void loop() {
-  // waterLevel = analogRead(sensorPin);
-  // Serial.println(waterLevel);
-  // delay(250);
-
   if (stateTransitionRequest) {
+    previousState = currentState;
     currentState = requestedState;
     requestedState = NIL;
     stateTransitionRequest = false;
@@ -183,9 +182,9 @@ void toggleReset() {
 void handleDisable() {
   digitalWrite(disabledStatusLED, HIGH);
 
-  if (!lcdEmpty) {
+  if (lcdEmpty) {
     lcd.noDisplay();
-    lcdEmpty = true;
+    lcdEmpty = false;
   }
 }
 
@@ -268,6 +267,10 @@ void handleRunning() {
 
 void handleError() {
   digitalWrite(errorStatusLED, HIGH);
+  if (lcdEmpty) {
+    displayError();
+    lcdEmpty = false;
+  }
 }
 
 void logStateChange() {
@@ -299,9 +302,11 @@ void cleanUp() {
       break;
     case IDLE:
       digitalWrite(idleStatusLED, LOW);
+      lcdEmpty = true;
       break;
     case RUNNING:
       digitalWrite(runningStatusLED, LOW);
+      lcdEmpty = true;
       if (dcFanState == HIGH) {
         toggleFan();
       }
@@ -309,6 +314,7 @@ void cleanUp() {
       break;
     case ERROR:
       digitalWrite(errorStatusLED, LOW);
+      lcdEmpty = true;
       break;
   }
 }
@@ -320,8 +326,16 @@ void updateDisplayStats() {
   lcd.clear();
   lcd.home();
   lcd.print(curTemperature);
-  lcd.setCursor(0, 2);
+  lcd.setCursor(0, 1);
   lcd.print(curHumidity);
+}
+
+void displayError() {
+  lcd.clear();
+  lcd.home();
+  lcd.print(errorMessage1);
+  lcd.setCursor(0, 1);
+  lcd.print(errorMessage2);
 }
 
 void moveVent(int direction) {
