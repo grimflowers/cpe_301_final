@@ -42,8 +42,6 @@ const int stepperSpeed = 10;
 Stepper myStepper = Stepper(stepsPerRevolution, stepPin1, stepPin3, stepPin2, stepPin4);
 
 // DC Motor
-const byte dcForwardPin = 38;
-const byte dcBackwardPin = 40;
 int dcFanState = LOW;
 
 // LCD
@@ -99,10 +97,6 @@ volatile unsigned long ventControlLeftInterruptTime = 0;
 volatile bool moveVentRightFlag = false;
 volatile bool moveVentLeftFlag = false;
 
-// LEDs
-// const byte disabledStatusLED = 46;
-// const byte idleStatusLED = 48;
-
 void setup() {
   Serial.begin(9600);
 
@@ -113,25 +107,16 @@ void setup() {
   rtc.begin();
   lcd.begin(16, 2);
 
-  pinMode(startButtonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(startButtonPin), toggleDisable, FALLING);
-
-  pinMode(resetButtonPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(resetButtonPin), toggleReset, FALLING);
 
   myStepper.setSpeed(stepperSpeed);
-  pinMode(ventRotateRightPin, INPUT_PULLUP);
-  pinMode(ventRotateLeftPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ventRotateRightPin), rotateVentRightHandler, FALLING);
   attachInterrupt(digitalPinToInterrupt(ventRotateLeftPin), rotateVentLeftHandler, FALLING);
 
-  pinMode(dcForwardPin, OUTPUT);
-  pinMode(dcBackwardPin, OUTPUT);
-  digitalWrite(dcForwardPin, LOW);
-  digitalWrite(dcBackwardPin, LOW);
-
-  // pinMode(disabledStatusLED, OUTPUT);
-  // pinMode(idleStatusLED, OUTPUT);
+  // Ensure fan control pins are LOW
+  *portD &= 0x7F;
+  *portG &= 0xFD;
 }
 
 void loop() {
@@ -225,8 +210,7 @@ void rotateVentLeftHandler() {
 }
 
 void handleDisable() {
-  // digitalWrite(disabledStatusLED, HIGH);
-  *portL |= 0x08;
+  *portL |= 0x08; // turn disabled status LED on
 
   if (lcdEmpty) {
     lcd.noDisplay();
@@ -235,8 +219,7 @@ void handleDisable() {
 }
 
 void handleIdle() {
-  // digitalWrite(idleStatusLED, HIGH);
-  *portL |= 0x02;
+  *portL |= 0x02; // turn idle status LED on
 
   int waterLevel = adc_read(CHANNEL_NUM);
   float curTemperature = dht.readTemperature(true);
@@ -313,20 +296,23 @@ void logStateChange() {
 
 void toggleFan() {
   dcFanState = (dcFanState == LOW) ? HIGH : LOW;
-  digitalWrite(dcForwardPin, dcFanState);
+
+  if (dcFanState == LOW) {
+    *portD &= 0x7F; // turn fan off
+  } else {
+    *portD |= 0x80; // turn fan on
+  }
 }
 
 void cleanUp() {
   switch (previousState) {
     case DISABLED:
-      // digitalWrite(disabledStatusLED, LOW);
-      *portL &= 0xF7;
+      *portL &= 0xF7; // turn disabled status LED off
       lcd.display();
       lcdEmpty = true;
       break;
     case IDLE:
-      // digitalWrite(idleStatusLED, LOW);
-      *portL &= 0xFD;
+      *portL &= 0xFD; // turn idle status LED off
       lcdEmpty = true;
       break;
     case RUNNING:
@@ -415,6 +401,16 @@ unsigned int adc_read(unsigned char adc_channel_num)
 }
 
 void configureGPIO() {
-  *ddrB |= 0x0A;
-  *ddrL |= 0x0A;
+  *ddrB |= 0x0A; // set B1 amd B3 as output
+
+  *ddrD |= 0x80;  // set D7 as output
+  *ddrD &= 0xF3;  // set D2 and D3 and inputs
+  *portD |= 0x0C; // enable pullups for D2 and D3
+
+  *ddrE &= 0xCF; // set E4 and E5 as inputs
+  *portE |= 0x30; // enable pullups for E4 and E5
+
+  *ddrL |= 0x0A; // set L1 and L3 as output
+
+  *ddrG |= 0x02; // set G1 as output
 }
