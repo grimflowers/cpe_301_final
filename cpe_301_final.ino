@@ -57,7 +57,7 @@ int dcFanState = LOW;
 // LCD
 const int RS = 8, EN = 9, D4 = 4, D5 = 5, D6 = 6, D7 = 7;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
-const unsigned long screenUpdateTimeThreshold = 5000;
+const unsigned long screenUpdateTimeThreshold = 60000;
 unsigned long lastScreenUpdateTime = 0;
 bool lcdEmpty = true;
 const char errorMessage1[] = "Water level is";
@@ -67,7 +67,7 @@ const char errorMessage2[] = "too low.";
 #define DHT11_PIN 24
 #define DHTTYPE DHT11
 DHT dht(DHT11_PIN, DHTTYPE);
-const float temperatureThreshold = 75.0;
+const float temperatureThreshold = 70.0;
 
 // Clock Cicuit
 RTC_DS1307 rtc;
@@ -289,27 +289,49 @@ void handleError() {
   }
 }
 
-void logStateChange() {
-    DateTime timeStamp = rtc.now();
+void logTime() {
+  DateTime timeStamp = rtc.now();
 
+  myPrint(" at ");
+  prettyPrintNum(timeStamp.twelveHour());
+  myPrint(":");
+  prettyPrintNum(timeStamp.minute());
+  myPrint(":");
+  prettyPrintNum(timeStamp.second());
+  myPrint(" ");
+
+  if (timeStamp.isPM()) {
+    myPrint("PM");
+  } else {
+    myPrint("AM");
+  }
+
+  myPrint(" on ");
+  myPrint(daysOfTheWeek[timeStamp.day()]);
+  myPrint(" ");
+  prettyPrintNum(timeStamp.day());
+  myPrint("/");
+  prettyPrintNum(timeStamp.month());
+  myPrint("/");
+  myPrintln(timeStamp.year());
+}
+
+void logStateChange() {
     myPrint("Changed from ");
     myPrint(stateNames[previousState]);
     myPrint(" to ");
     myPrint(stateNames[currentState]);
-    myPrint(" at ");
-    myPrint(timeStamp.hour());
-    myPrint(":");
-    myPrint(timeStamp.minute());
-    myPrint(":");
-    myPrint(timeStamp.second());
-    myPrint(" on ");
-    myPrint(daysOfTheWeek[timeStamp.day()]);
-    myPrint(" ");
-    myPrint(timeStamp.day());
-    myPrint("/");
-    myPrint(timeStamp.month());
-    myPrint("/");
-    myPrintln(timeStamp.year());
+    logTime();
+}
+
+void logVentChange(int direction) {
+  if (direction > 0) {
+    myPrint("Moved vent right");
+  } else {
+    myPrint("Moved vent left");
+  }
+
+  logTime();
 }
 
 void toggleFan() {
@@ -369,6 +391,7 @@ void displayError() {
 
 void moveVent(int direction) {
   myStepper.step(direction * stepsPerRevolution);
+  logVentChange(direction);
 }
 
 void adc_init()
@@ -480,7 +503,7 @@ void myPrint(uint16_t printNum) {
       unsigned int digit = printNum % 10;
       char_buff[i] = digit + '0';
       i += 1;
-      printNum = printNum / 10; 
+      printNum = printNum / 10;
     }
 
     // Send characters in correct order over USB
@@ -493,4 +516,12 @@ void myPrint(uint16_t printNum) {
 void myPrintln(uint16_t printNum) {
   myPrint(printNum);
   U0putchar('\n');
+}
+
+void prettyPrintNum(uint16_t printNum) {
+  if (printNum < 10) {
+    myPrint("0");
+  }
+
+  myPrint(printNum);
 }
