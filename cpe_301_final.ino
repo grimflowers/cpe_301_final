@@ -11,6 +11,27 @@ volatile unsigned int* my_ADC_DATA = (unsigned int*) 0x78;
 unsigned char CHANNEL_NUM = 0;
 const int waterLevelThreshold = 250;
 
+// GPIO registers
+volatile unsigned char* portB = (unsigned char*) 0x25;
+volatile unsigned char* ddrB  = (unsigned char*) 0x24;
+volatile unsigned char* pinB = (unsigned char*) 0x23;
+
+volatile unsigned char* portD = (unsigned char*) 0x2B;
+volatile unsigned char* ddrD = (unsigned char*) 0x2A;
+volatile unsigned char* pinD = (unsigned char*) 0x29;
+
+volatile unsigned char* portE = (unsigned char*) 0x2E;
+volatile unsigned char* ddrE = (unsigned char*) 0x2D;
+volatile unsigned char* pinE = (unsigned char*) 0x2C;
+
+volatile unsigned char* portG = (unsigned char*) 0x34;
+volatile unsigned char* ddrG = (unsigned char*) 0x33;
+volatile unsigned char* pinG = (unsigned char*) 0x32;
+
+volatile unsigned char* portL = (unsigned char*) 0x10B;
+volatile unsigned char* ddrL = (unsigned char*) 0x10A;
+volatile unsigned char* pinL = (unsigned char*) 0x109;
+
 // Stepper Motor
 const byte stepPin1 = 10;
 const byte stepPin2 = 11;
@@ -79,13 +100,13 @@ volatile bool moveVentRightFlag = false;
 volatile bool moveVentLeftFlag = false;
 
 // LEDs
-const byte disabledStatusLED = 46;
-const byte idleStatusLED = 48;
-const byte runningStatusLED = 50;
-const byte errorStatusLED = 52;
+// const byte disabledStatusLED = 46;
+// const byte idleStatusLED = 48;
 
 void setup() {
   Serial.begin(9600);
+
+  configureGPIO();
 
   adc_init();
   dht.begin();
@@ -109,10 +130,8 @@ void setup() {
   digitalWrite(dcForwardPin, LOW);
   digitalWrite(dcBackwardPin, LOW);
 
-  pinMode(disabledStatusLED, OUTPUT);
-  pinMode(idleStatusLED, OUTPUT);
-  pinMode(runningStatusLED, OUTPUT);
-  pinMode(errorStatusLED, OUTPUT);
+  // pinMode(disabledStatusLED, OUTPUT);
+  // pinMode(idleStatusLED, OUTPUT);
 }
 
 void loop() {
@@ -181,15 +200,6 @@ void toggleReset() {
   prevResetInterruptTime = curResetInterruptTime;
 }
 
-void handleDisable() {
-  digitalWrite(disabledStatusLED, HIGH);
-
-  if (lcdEmpty) {
-    lcd.noDisplay();
-    lcdEmpty = false;
-  }
-}
-
 void rotateVentRightHandler() {
   unsigned long curInterruptTime = millis();
   bool notInErrorState = (currentState != ERROR);
@@ -214,8 +224,19 @@ void rotateVentLeftHandler() {
   ventControlLeftInterruptTime = curInterruptTime;
 }
 
+void handleDisable() {
+  // digitalWrite(disabledStatusLED, HIGH);
+  *portL |= 0x08;
+
+  if (lcdEmpty) {
+    lcd.noDisplay();
+    lcdEmpty = false;
+  }
+}
+
 void handleIdle() {
-  digitalWrite(idleStatusLED, HIGH);
+  // digitalWrite(idleStatusLED, HIGH);
+  *portL |= 0x02;
 
   int waterLevel = adc_read(CHANNEL_NUM);
   float curTemperature = dht.readTemperature(true);
@@ -242,7 +263,7 @@ void handleIdle() {
 }
 
 void handleRunning() {
-  digitalWrite(runningStatusLED, HIGH);
+  *portB |= 0x08; // turn running status LED on
 
   int waterLevel = adc_read(CHANNEL_NUM);
   float curTemperature = dht.readTemperature(true);
@@ -268,7 +289,7 @@ void handleRunning() {
 }
 
 void handleError() {
-  digitalWrite(errorStatusLED, HIGH);
+  *portB |= 0x02; // turn error status LED on
   if (lcdEmpty) {
     displayError();
     lcdEmpty = false;
@@ -298,16 +319,18 @@ void toggleFan() {
 void cleanUp() {
   switch (previousState) {
     case DISABLED:
-      digitalWrite(disabledStatusLED, LOW);
+      // digitalWrite(disabledStatusLED, LOW);
+      *portL &= 0xF7;
       lcd.display();
       lcdEmpty = true;
       break;
     case IDLE:
-      digitalWrite(idleStatusLED, LOW);
+      // digitalWrite(idleStatusLED, LOW);
+      *portL &= 0xFD;
       lcdEmpty = true;
       break;
     case RUNNING:
-      digitalWrite(runningStatusLED, LOW);
+      *portB &= 0xF7; // turn running status LED off
       lcdEmpty = true;
       if (dcFanState == HIGH) {
         toggleFan();
@@ -315,7 +338,7 @@ void cleanUp() {
 
       break;
     case ERROR:
-      digitalWrite(errorStatusLED, LOW);
+      *portB &= 0xFD; // turn error status LED off
       lcdEmpty = true;
       break;
   }
@@ -389,4 +412,9 @@ unsigned int adc_read(unsigned char adc_channel_num)
   while((*my_ADCSRA & 0x40) != 0);
   // return the result in the ADC data register
   return *my_ADC_DATA;
+}
+
+void configureGPIO() {
+  *ddrB |= 0x0A;
+  *ddrL |= 0x0A;
 }
