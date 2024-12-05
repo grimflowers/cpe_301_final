@@ -3,6 +3,16 @@
 #include "DHT.h"
 #include "RTClib.h"
 
+// UART registers 
+#define RDA 0x80
+#define TBE 0x20  
+
+volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
+volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
+volatile unsigned char *myUCSR0C = (unsigned char *)0x00C2;
+volatile unsigned int  *myUBRR0  = (unsigned int *) 0x00C4;
+volatile unsigned char *myUDR0   = (unsigned char *)0x00C6;
+
 // ADC used for Water Level Sensor
 volatile unsigned char* my_ADMUX = (unsigned char*) 0x7C;
 volatile unsigned char* my_ADCSRB = (unsigned char*) 0x7B;
@@ -61,6 +71,8 @@ const float temperatureThreshold = 75.0;
 
 // Clock Cicuit
 RTC_DS1307 rtc;
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
+"Friday", "Saturday"};
 
 // Global States
 enum State {
@@ -98,10 +110,8 @@ volatile bool moveVentRightFlag = false;
 volatile bool moveVentLeftFlag = false;
 
 void setup() {
-  Serial.begin(9600);
-
   configureGPIO();
-
+  U0init(9600);
   adc_init();
   dht.begin();
   rtc.begin();
@@ -162,7 +172,7 @@ void loop() {
 }
 
 void toggleDisable() {
-  unsigned long curStartInterruptTime = millis();
+  unsigned long curStartInterruptTime = millis(); // used for button debounce
 
   if (curStartInterruptTime - prevStartInterruptTime > debounceThreshold) {
     requestedState = ((currentState == DISABLED) ? IDLE : DISABLED);
@@ -173,7 +183,7 @@ void toggleDisable() {
 }
 
 void toggleReset() {
-  unsigned long curResetInterruptTime = millis();
+  unsigned long curResetInterruptTime = millis(); // used for button debounce
   bool inErrorState = (currentState == ERROR);
   bool notABounce = (curResetInterruptTime - prevResetInterruptTime > debounceThreshold);
 
@@ -186,7 +196,7 @@ void toggleReset() {
 }
 
 void rotateVentRightHandler() {
-  unsigned long curInterruptTime = millis();
+  unsigned long curInterruptTime = millis(); // used for button debounce
   bool notInErrorState = (currentState != ERROR);
   bool notABounce = (curInterruptTime - ventControlRightInterruptTime > debounceThreshold);
 
@@ -198,7 +208,7 @@ void rotateVentRightHandler() {
 }
 
 void rotateVentLeftHandler() {
-  unsigned long curInterruptTime = millis();
+  unsigned long curInterruptTime = millis(); // used for button debounce
   bool notInErrorState = (currentState != ERROR);
   bool notABounce = (curInterruptTime - ventControlLeftInterruptTime > debounceThreshold);
 
@@ -236,7 +246,7 @@ void handleIdle() {
     requestedState = RUNNING;
     stateTransitionRequest = true;
   } else {
-    unsigned long currentMillis = millis();
+    unsigned long currentMillis = millis(); // check if enough time has passed for display update
 
     if (currentMillis - lastScreenUpdateTime > screenUpdateTimeThreshold) {
       updateDisplayStats();
@@ -282,16 +292,24 @@ void handleError() {
 void logStateChange() {
     DateTime timeStamp = rtc.now();
 
-    Serial.print("Changed from ");
-    Serial.print(stateNames[previousState]);
-    Serial.print(" to ");
-    Serial.print(stateNames[currentState]);
-    Serial.print(" at ");
-    Serial.print(timeStamp.hour(), DEC);
-    Serial.print(":");
-    Serial.print(timeStamp.minute(), DEC);
-    Serial.print(":");
-    Serial.println(timeStamp.second(), DEC);
+    myPrint("Changed from ");
+    myPrint(stateNames[previousState]);
+    myPrint(" to ");
+    myPrint(stateNames[currentState]);
+    myPrint(" at ");
+    myPrint(timeStamp.hour());
+    myPrint(":");
+    myPrint(timeStamp.minute());
+    myPrint(":");
+    myPrint(timeStamp.second());
+    myPrint(" on ");
+    myPrint(daysOfTheWeek[timeStamp.day()]);
+    myPrint(" ");
+    myPrint(timeStamp.day());
+    myPrint("/");
+    myPrint(timeStamp.month());
+    myPrint("/");
+    myPrintln(timeStamp.year());
 }
 
 void toggleFan() {
@@ -350,12 +368,6 @@ void displayError() {
 }
 
 void moveVent(int direction) {
-  if (direction >= 0) {
-    Serial.println("Moving Vent Right");
-  } else {
-    Serial.println("Moving Vent Left");
-  }
-
   myStepper.step(direction * stepsPerRevolution);
 }
 
@@ -413,4 +425,72 @@ void configureGPIO() {
   *ddrL |= 0x0A; // set L1 and L3 as output
 
   *ddrG |= 0x02; // set G1 as output
+}
+
+void U0init(int U0baud) {
+ unsigned long FCPU = 16000000;
+ unsigned int tbaud;
+ tbaud = (FCPU / 16 / U0baud - 1);
+ // Same as (FCPU / (16 * U0baud)) - 1;
+ *myUCSR0A = 0x20;
+ *myUCSR0B = 0x18;
+ *myUCSR0C = 0x06;
+ *myUBRR0  = tbaud;
+}
+
+unsigned char U0kbhit() {
+  return *myUCSR0A & RDA;
+}
+
+unsigned char U0getchar() {
+  return *myUDR0;
+}
+
+void U0putchar(unsigned char U0pdata) {
+  while((*myUCSR0A & TBE)==0);
+  *myUDR0 = U0pdata;
+}
+
+void myPrint(char* printString) {
+  int index = 0;
+
+  while(printString[index] != '\0') {
+    U0putchar(printString[index]);
+    index++;
+  }
+}
+
+void myPrintln(char* printString) {
+  myPrint(printString);
+  U0putchar('\n');
+}
+
+void myPrint(uint16_t printNum) {
+  const int BUFF_SIZE = 5;
+  char char_buff[BUFF_SIZE];
+
+  if (printNum == 0) {
+    U0putchar('0');
+    U0putchar('\n');
+  } else {
+    int i = 0;
+
+    // Load characters into char buffer
+    while (printNum > 0 && i < BUFF_SIZE) {
+      unsigned int digit = printNum % 10;
+      char_buff[i] = digit + '0';
+      i += 1;
+      printNum = printNum / 10; 
+    }
+
+    // Send characters in correct order over USB
+    for (int j = i - 1; j >= 0; j--) {
+      U0putchar(char_buff[j]);
+    }
+  }
+}
+
+void myPrintln(uint16_t printNum) {
+  myPrint(printNum);
+  U0putchar('\n');
 }
